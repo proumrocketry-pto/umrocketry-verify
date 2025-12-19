@@ -1,0 +1,108 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>UM Rocketry Membership Verification</title>
+  <style>
+    body { font-family: Arial, sans-serif; max-width: 680px; margin: 40px auto; padding: 0 16px; }
+    .card { border: 1px solid #ddd; border-radius: 12px; padding: 18px; }
+    .ok { color: #0a7a0a; font-weight: 700; }
+    .bad { color: #b00020; font-weight: 700; }
+    .muted { color: #666; }
+    code { background: #f3f3f3; padding: 2px 6px; border-radius: 6px; }
+  </style>
+</head>
+<body>
+  <h1>UM Rocketry Membership Verification</h1>
+  <div class="card" id="result">Checking…</div>
+
+  <script>
+    // 1) PASTE YOUR "Publish to web" CSV link here:
+    https://docs.google.com/spreadsheets/d/e/2PACX-1vSQbzpvLCsW3rGxpYxlmlqmvwQt8BD5P81HFxcyfWe7Txmd_4b9aGVCwK7gY93cvpPhnkAlUOv8FWTQ/pubhtml;
+
+    function getQueryParam(name) {
+      const url = new URL(window.location.href);
+      return url.searchParams.get(name);
+    }
+
+    function parseCSV(text) {
+      // Simple CSV parser (works fine for this use if names don't include commas)
+      const lines = text.trim().split("\n").map(l => l.replace(/\r/g, ""));
+      const rows = lines.map(line => line.split(",").map(cell => cell.trim()));
+      return rows;
+    }
+
+    function isExpired(expirationStr) {
+      // expects YYYY-MM-DD
+      if (!expirationStr) return true;
+      const exp = new Date(expirationStr + "T23:59:59");
+      return new Date() > exp;
+    }
+
+    async function run() {
+      const id = getQueryParam("id");
+      const box = document.getElementById("result");
+
+      if (!id) {
+        box.innerHTML = `<p class="bad">Missing member ID.</p>
+                         <p class="muted">Example: <code>?id=RKT-0001</code></p>`;
+        return;
+      }
+
+      try {
+        const res = await fetch(SHEET_CSV_URL, { cache: "no-store" });
+        if (!res.ok) throw new Error("Failed to load member list.");
+        const csvText = await res.text();
+        const rows = parseCSV(csvText);
+
+        // Find columns by header name
+        const header = rows[0].map(h => h.toLowerCase());
+        const idxMemberID = header.indexOf("memberid");
+        const idxName = header.indexOf("name");
+        const idxStatus = header.indexOf("status");
+        const idxExpiration = header.indexOf("expiration");
+
+        const dataRows = rows.slice(1);
+
+        const match = dataRows.find(r => (r[idxMemberID] || "").toUpperCase() === id.toUpperCase());
+
+        if (!match) {
+          box.innerHTML = `<p class="bad">❌ Not found</p>
+                           <p>No member with ID <code>${id}</code>.</p>`;
+          return;
+        }
+
+        const name = match[idxName] || "(No name)";
+        const status = (match[idxStatus] || "").toLowerCase();
+        const expiration = match[idxExpiration] || "";
+        const expired = isExpired(expiration);
+
+        const active = (status === "active") && !expired;
+
+        if (active) {
+          box.innerHTML = `
+            <p class="ok">✅ Verified Member</p>
+            <p><b>Name:</b> ${name}</p>
+            <p><b>Member ID:</b> <code>${id}</code></p>
+            <p><b>Expiration:</b> ${expiration}</p>
+          `;
+        } else {
+          box.innerHTML = `
+            <p class="bad">❌ Not valid</p>
+            <p><b>Name:</b> ${name}</p>
+            <p><b>Member ID:</b> <code>${id}</code></p>
+            <p><b>Status:</b> ${match[idxStatus] || ""}</p>
+            <p><b>Expiration:</b> ${expiration}</p>
+          `;
+        }
+      } catch (e) {
+        box.innerHTML = `<p class="bad">Error loading verification.</p>
+                         <p class="muted">${e.message}</p>`;
+      }
+    }
+
+    run();
+  </script>
+</body>
+</html>
